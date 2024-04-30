@@ -1,43 +1,42 @@
 const express = require("express");
 const app = express();
-const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+const cors = require("cors");
+const stripe = require("stripe")("sk_test_51PBFBkSG3M3LxSLlZavfo");
 app.use(express.json());
+app.use(cors());
 
-app.post("/create-payment-intent", async (req, res) => {
+app.post("/api/create-checkout-session", async (req, res) => {
+  const { cartItems } = req.body;
+
+  const totalAmount = cartItems.reduce((acc, item) => acc + item.price, 0);
+
   try {
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: req.body.amount,
-      currency: "usd",
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      line_items: cartItems.map((item) => ({
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: item.name,
+          },
+          unit_amount: item.price * 100, // Stripe requires the price in cents
+        },
+        quantity: 1, // Assuming each item has a quantity of 1
+      })),
+      mode: "payment",
+      success_url: "http://localhost:3000/success",
+      cancel_url: "http://localhost:3000/cancel",
     });
-    res.json({ clientSecret: paymentIntent.client_secret });
+
+    res.json({ sessionId: session.id }); // Send session ID back to the client
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error("Error creating checkout session:", error);
+    res
+      .status(500)
+      .json({ error: "An error occurred while creating checkout session" });
   }
 });
 
-app.post("/webhook", express.raw({ type: "application/json" }), (req, res) => {
-  const sig = req.headers["stripe-signature"];
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
-  } catch (err) {
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
-  switch (event.type) {
-    case "payment_intent.succeeded":
-      const paymentIntent = event.data.object;
-      break;
-    default:
-      console.log(`Unhandled event type: ${event.type}`);
-  }
-  res.json({ received: true });
-});
-
-app.listen(3001, () => {
-  console.log("Server is listening on port 3001");
+app.listen(4000, () => {
+  console.log("Server is running on port 4000");
 });
